@@ -99,10 +99,11 @@ export async function deliverOrder(prisma: PrismaClient, orderNo: string) {
       items: contents,
     };
   } catch (error) {
+    const failedDeliveryType = order.product.deliveryType === "FIXED_CARD" ? "FIXED_CARD" : "CARD";
     await prisma.orderDelivery.create({
       data: {
         orderId: order.id,
-        deliveryType: "CARD",
+        deliveryType: failedDeliveryType,
         contentSnapshot: error instanceof Error ? error.message : "delivery failed",
         status: "FAILED",
       },

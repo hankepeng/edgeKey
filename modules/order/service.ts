@@ -142,7 +142,7 @@ export async function getOrderForQuery(
   // notify 与 return 几乎同时到达时，return 这次读取可能正好卡在
   // “订单已支付但异步发货还没写完”的瞬间。这里做一次短暂重查，
   // 优先把最终的 DELIVERED 状态和发货内容返回给页面，避免用户手动刷新。
-  if (order.paymentStatus === "PAID" && order.deliveryStatus === "NOT_DELIVERED") {
+  if (order.product.deliveryType !== "MANUAL" && order.paymentStatus === "PAID" && order.deliveryStatus === "NOT_DELIVERED") {
     for (let index = 0; index < 3; index += 1) {
       await sleep(150);
       const refreshed = await findOrderWithProduct(client, orderNo);

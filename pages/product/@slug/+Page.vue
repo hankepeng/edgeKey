@@ -75,7 +75,7 @@
           <p v-if="product.deliveryType === 'CARD_AUTO' && product.availableStock >= 0 && product.availableStock < 10" class="text-sm" :class="product.availableStock === 0 ? 'text-error' : 'text-warning'">
             {{ product.availableStock === 0 ? '商品都卖光了，看看其他商品' : `库存紧张，仅剩 ${product.availableStock} 件` }}
           </p>
-          <p v-else-if="product.deliveryType === 'FIXED_CARD'" class="text-sm text-success">固定内容自动发货，库存充足。</p>
+          <p v-else-if="product.deliveryType === 'FIXED_CARD'" class="text-sm text-success">自动发货，无限库存。</p>
           <p v-else-if="product.deliveryType === 'MANUAL'" class="text-sm text-info">手动发货商品，支付后等待管理员处理。</p>
 
           <AppButton variant="primary" :loading="submitting" :disabled="!paymentMethods.length || (product.deliveryType === 'CARD_AUTO' && product.availableStock === 0)" @click="handleCreateOrder">
@@ -142,7 +142,7 @@ watch(() => form.paymentProvider, (provider) => {
 const descriptionHtml = formatDescriptionHtml(product?.description || "");
 
 async function handleCreateOrder() {
-  if (!product) return;
+  if (!product || submitting.value) return;
 
   const contactEmail = form.contactValue.trim();
   if (!contactEmail) {
