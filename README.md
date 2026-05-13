@@ -84,6 +84,25 @@ git push origin main
 
 如果你使用 Cloudflare Workers 的 Git 集成（连接 GitHub/GitLab 仓库自动部署），需要先完成以下前置步骤：
 
+### Cloudflare Turnstile（管理员登录验证码）
+
+项目现已支持在 **管理员登录页** 接入 Cloudflare Turnstile 小组件，用于拦截自动化爆破登录。
+
+需要在 Cloudflare Dashboard 的 Turnstile 中创建站点，并配置以下环境变量：
+
+- `TURNSTILE_SITE_KEY`：前端小组件站点 Key
+- `TURNSTILE_SECRET_KEY`：服务端校验 Secret Key
+
+使用命令给当前项目配置Turnstile
+```bash
+wrangler secret put TURNSTILE_SECRET_KEY
+wrangler secret put TURNSTILE_SECRET_KEY
+```
+说明：
+- 两个变量都未配置时，Turnstile 默认关闭，不影响现有登录流程
+- 两个变量都正确配置后，后台登录页会自动显示 Turnstile 小组件，并在服务端强制校验
+- 如果只配置了其中一个变量，系统会自动视为未启用，避免出现半配置状态
+
 **0. 前置：在 Cloudflare Dashboard 创建 D1 数据库**
 
 1. [创建数据库](#如何创建数据库) 名称填 `edgekey-db`

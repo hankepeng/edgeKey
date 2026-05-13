@@ -4,9 +4,10 @@ import CredentialsProvider from "@auth/core/providers/credentials";
 import type { Session } from "@auth/core/types";
 import { enhance, type UniversalHandler, type UniversalMiddleware } from "@universal-middleware/core";
 import { PrismaClient } from "../generated/prisma/client";
-import { internalServerError, rateLimitError } from "../lib/app-error";
+import { badRequestError, internalServerError, rateLimitError } from "../lib/app-error";
 import { logger } from "../lib/logger";
 import { verifyAdminPassword, hashAdminPassword } from "../modules/auth/crypto";
+import { getClientIpFromRequest, TURNSTILE_ACTION, verifyTurnstileToken } from "./turnstile";
 
 const ADMIN_ROLE = "admin" as const;
 const loginAttemptStore = new Map<string, { count: number; expiresAt: number }>();
@@ -41,20 +42,34 @@ function getLoginRateLimitConfig() {
   };
 }
 
-function getClientIp(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for");
-  return request.headers.get("cf-connecting-ip") || forwarded?.split(",")[0]?.trim() || "unknown";
-}
-
 function isCredentialsCallbackRequest(request: Request) {
   const url = new URL(request.url);
   return request.method === "POST" && url.pathname.endsWith("/api/auth/callback/credentials");
 }
 
+async function assertTurnstileValid(request: Request) {
+  const clonedRequest = request.clone();
+  const contentType = clonedRequest.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/x-www-form-urlencoded") && !contentType.includes("multipart/form-data")) {
+    throw badRequestError("登录请求格式不正确", "AUTH_INVALID_CONTENT_TYPE");
+  }
+
+  const formData = await clonedRequest.formData();
+  const tokenValue = formData.get("cf-turnstile-response");
+  const token = typeof tokenValue === "string" ? tokenValue : "";
+
+  await verifyTurnstileToken({
+    token,
+    remoteIp: getClientIpFromRequest(request),
+    expectedAction: TURNSTILE_ACTION,
+  });
+}
+
 function isRateLimited(request: Request) {
   const { maxAttempts, windowMs } = getLoginRateLimitConfig();
   const now = Date.now();
-  const key = getClientIp(request);
+  const key = getClientIpFromRequest(request);
   const current = loginAttemptStore.get(key);
 
   if (!current || current.expiresAt <= now) {
@@ -217,11 +232,31 @@ export const authjsSessionMiddleware: UniversalMiddleware = enhance(
  **/
 export const authjsHandler = enhance(
   async (request, context) => {
-    if (isCredentialsCallbackRequest(request) && isRateLimited(request)) {
-      const error = rateLimitError("Too Many Requests", "AUTH_RATE_LIMITED");
-      return new Response(error.message, {
-        status: error.statusCode,
-      });
+    if (isCredentialsCallbackRequest(request)) {
+      if (isRateLimited(request)) {
+        const error = rateLimitError("Too Many Requests", "AUTH_RATE_LIMITED");
+        return new Response(error.message, {
+          status: error.statusCode,
+        });
+      }
+
+      try {
+        await assertTurnstileValid(request);
+      } catch (error) {
+        const appError = error instanceof Error ? error : new Error(String(error));
+        logger.warn(appError, {
+          event: "auth.turnstile.validation_failed",
+        });
+
+        const url = new URL(request.url);
+        const callbackUrl = url.searchParams.get("callbackUrl") || "/admin";
+        const redirectUrl = new URL("/admin/login", url.origin);
+        redirectUrl.searchParams.set("error", error instanceof Error && "code" in error && typeof (error as { code?: unknown }).code === "string"
+          ? String((error as { code?: string }).code)
+          : "turnstile_invalid");
+        redirectUrl.searchParams.set("redirect", callbackUrl);
+        return Response.redirect(redirectUrl.toString(), 302);
+      }
     }
 
     const authContext = context as unknown as AuthContext;
